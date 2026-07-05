@@ -1925,7 +1925,7 @@ original_return_missing:
         const int fontPatched = ApplyFontOverrides(regions);
         const int totalPatched = entryPatched + poolPatched + fontPatched;
         ++g_scanPass;
-        if (totalPatched)
+        if (totalPatched && (g_scanPass <= 10 || g_scanPass % 60 == 0))
         {
             Log("patched total=" + std::to_string(totalPatched) + " entries=" + std::to_string(entryPatched) + " pools="
                 + std::to_string(poolPatched) + " fonts=" + std::to_string(fontPatched));
@@ -1959,7 +1959,8 @@ original_return_missing:
         Log("db_find inline hook disabled; using delayed safe scans");
         Sleep(6000);
 
-        for (int i = 0; i < 600; ++i)
+        Log("worker scan loop active");
+        for (int i = 0; ; ++i)
         {
             if (i < 90 || i % 5 == 0)
             {
@@ -1967,9 +1968,6 @@ original_return_missing:
             }
             Sleep(1000);
         }
-
-        Log("worker finished");
-        return 0;
     }
 }
 

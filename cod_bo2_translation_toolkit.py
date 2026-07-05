@@ -37,6 +37,7 @@ from typing import Iterable
 
 SHORT_APP_NAME = "CoD BO2 Translation Toolkit"
 APP_NAME = "Call of Duty Black Ops 2 Translation Toolkit"
+APP_VERSION = "v1.1"
 FORMAT_VERSION = 1
 BIN_MAGIC = b"BO2TRBIN"
 BIN_VERSION = 1
@@ -49,6 +50,7 @@ WORK_DIR = (
 )
 DEFAULT_OUTPUT_ROOT = WORK_DIR / "output"
 LIB_DIR = WORK_DIR / "lib"
+RESOURCE_DIR = WORK_DIR / "resources"
 DLL_LIB_DIR = LIB_DIR / "dll"
 OAT_LIB_DIR = LIB_DIR / "OpenAssetTools"
 DEFAULT_EXPORT_NAME = "bo2_english.txt"
@@ -65,6 +67,7 @@ FONT_METRICS_ROOT_NAME = "metrics"
 FONT_GLYPHS_ROOT_NAME = "glyphs"
 FONT_INTERNAL_ROOT_NAME = "_tool_data_do_not_edit"
 FONT_ISOLATED_PREVIEW_ROOT_NAME = "DONT_CHANGE_ITS_JUST_ISOLATED_IMAGES"
+FONT_METRIC_RESOURCE_DIR = RESOURCE_DIR / "font_metrics"
 MAIN_FONT_ATLAS_STEMS = {"gamefonts_pc_720", "devfonts", "distfont"}
 EXPORT_FONT_ATLAS_STEMS = {"gamefonts_pc_720"}
 OAT_DUMP_ROOT_NAME = "DO_NOT_CHANGE_OR_DELETE_THIS_FILE"
@@ -1244,6 +1247,31 @@ def copy_720_font_metrics(metrics_source: Path, out_root: Path) -> int:
     return copied
 
 
+def bundled_font_metric_roots() -> list[Path]:
+    roots = [FONT_METRIC_RESOURCE_DIR]
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        roots.append(Path(sys._MEIPASS) / "resources" / "font_metrics")
+    seen: set[Path] = set()
+    available: list[Path] = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        if resolved in seen or not root.is_dir():
+            continue
+        seen.add(resolved)
+        available.append(root)
+    return available
+
+
+def copy_bundled_font_metrics(out_root: Path) -> int:
+    copied = 0
+    for metrics_source in bundled_font_metric_roots():
+        copied += copy_720_font_metrics(metrics_source, out_root)
+    return copied
+
+
 def convert_raw_font_atlases(source_root: Path, out_root: Path) -> tuple[int, list[dict]]:
     generated: list[dict] = []
     copied = 0
@@ -1291,7 +1319,18 @@ def export_fonts(source_root: Path, output_root: Path) -> dict:
     if not (out_root / FONT_ATLAS_ROOT_NAME / "gamefonts_pc_720.png").is_file():
         raise FileNotFoundError("Could not find gamefonts_pc_720 in the selected game source or prepared dump.")
     if not any((out_root / FONT_METRICS_ROOT_NAME).rglob("*.csv")):
-        raise FileNotFoundError("Could not find BO2 720 font metric CSV files in the selected source. Use a prepared dump that contains fonts/metrics or fonts/_tool_data_do_not_edit/metrics.")
+        metrics_copied = copy_bundled_font_metrics(out_root)
+        copied += metrics_copied
+        if metrics_copied:
+            generated_png.append(
+                {
+                    "source": "resources/font_metrics",
+                    "path": f"{FONT_METRICS_ROOT_NAME}/fonts/720",
+                    "kind": "font_metric_fallback",
+                }
+            )
+    if not any((out_root / FONT_METRICS_ROOT_NAME).rglob("*.csv")):
+        raise FileNotFoundError("Could not find BO2 720 font metric CSV files in the selected source or toolkit resources.")
 
     files = []
     for path in sorted(out_root.rglob("*")):
@@ -1896,7 +1935,7 @@ class ToolkitApp(tk.Tk):
         header.pack(fill="x")
         header.columnconfigure(0, weight=1)
         ttk.Label(header, text=APP_NAME, style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(header, text="Made by dörtkoldantaciz - v1", style="Credit.TLabel").grid(row=0, column=1, sticky="ne", pady=(5, 0))
+        ttk.Label(header, text=f"Made by dörtkoldantaciz - {APP_VERSION}", style="Credit.TLabel").grid(row=0, column=1, sticky="ne", pady=(5, 0))
 
         tabs = ttk.Notebook(root, takefocus=False)
         tabs.pack(fill="both", expand=True, pady=(18, 0))
@@ -2107,6 +2146,15 @@ def summarize_result(result: dict) -> dict:
     return summary
 
 
+def emit_cli_summary(result: dict) -> None:
+    stream = getattr(sys, "stdout", None)
+    if stream is None:
+        return
+    stream.write(json.dumps(summarize_result(result), ensure_ascii=False, indent=2))
+    stream.write("\n")
+    stream.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
@@ -2125,7 +2173,7 @@ def main(argv: list[str] | None = None) -> int:
             args.layout,
             args.directory_format,
         )
-        print(json.dumps(summarize_result(result), ensure_ascii=False, indent=2))
+        emit_cli_summary(result)
         return 0
     if args.command == "pack":
         result = package_project(
@@ -2135,7 +2183,7 @@ def main(argv: list[str] | None = None) -> int:
             None,
             not args.no_runtime_log,
         )
-        print(json.dumps(summarize_result(result), ensure_ascii=False, indent=2))
+        emit_cli_summary(result)
         return 0
     parser.print_help()
     return 1
